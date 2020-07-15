@@ -72,6 +72,10 @@ impl Commit {
         })
     }
 
+    pub fn take(self) -> (Vec<u8>, usize) {
+        self.buffer
+    }
+
     pub fn meta(&self) -> Meta {
         Meta {
             fb: self.commit().meta().unwrap(),

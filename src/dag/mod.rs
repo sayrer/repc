@@ -24,6 +24,13 @@ pub mod write;
 
 use crate::kv;
 
+// TODO: de-pub the above mods in favor of below.
+pub use chunk::Chunk;
+pub use key::Key;
+pub use read::Read;
+pub use store::Store;
+pub use write::Write;
+
 #[derive(Debug)]
 pub enum Error {
     Storage(kv::StoreError),

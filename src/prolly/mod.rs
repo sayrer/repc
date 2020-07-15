@@ -5,6 +5,8 @@ mod leaf;
 mod leaf_generated;
 pub mod map;
 
+pub use map::{FlushError, LoadError, Map};
+
 #[allow(dead_code)]
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct Entry<'a> {

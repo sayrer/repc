@@ -4,27 +4,44 @@ use super::{Error, Result};
 use crate::kv;
 use log::error;
 
-#[allow(dead_code)]
-pub struct Read<'a> {
+pub struct OwnedRead<'a> {
     kvr: Box<dyn kv::Read + 'a>,
 }
 
 #[allow(dead_code)]
+impl<'a> OwnedRead<'a> {
+    pub fn new(kvr: Box<dyn kv::Read + 'a>) -> OwnedRead {
+        OwnedRead { kvr }
+    }
+
+    pub fn read(&'a self) -> Read<'a> {
+        Read {
+            kvr: self.kvr.as_ref(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub struct Read<'a> {
+    kvr: &'a dyn kv::Read,
+}
+
+#[allow(dead_code)]
 impl<'a> Read<'_> {
-    pub fn new(kvr: Box<dyn kv::Read + 'a>) -> Read {
+    pub fn new(kvr: &'a dyn kv::Read) -> Read {
         Read { kvr }
     }
 
     pub async fn has_chunk(&self, hash: &str) -> Result<bool> {
-        has_chunk(self.kvr.as_ref(), hash).await
+        has_chunk(self.kvr, hash).await
     }
 
     pub async fn get_chunk(&self, hash: &str) -> Result<Option<Chunk>> {
-        get_chunk(self.kvr.as_ref(), hash).await
+        get_chunk(self.kvr, hash).await
     }
 
     pub async fn get_head(&self, name: &str) -> Result<Option<String>> {
-        get_head(self.kvr.as_ref(), name).await
+        get_head(self.kvr, name).await
     }
 }
 
@@ -68,7 +85,7 @@ mod tests {
             let kv = MemStore::new();
             let kvw = kv.write().await.unwrap();
             let kvr = kv.read().await.unwrap();
-            let r = Read { kvr };
+            let r = Read { kvr: kvr.as_ref() };
 
             kvw.put(&Key::ChunkData(k).to_string(), &vec![0u8, 1])
                 .await
@@ -111,7 +128,7 @@ mod tests {
             // TODO(phritz) start a write tx here that completes before r.get_chunk
             // below and ensure it does not affect the result.
             let kvr = kv.read().await.unwrap();
-            let r = Read { kvr };
+            let r = Read { kvr: kvr.as_ref() };
             // TODO(phritz) start a write tx here that completes before r.get_chunk
             // and ensure it does not affect the result.
             if get_same_chunk {
