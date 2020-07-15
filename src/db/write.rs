@@ -1,8 +1,7 @@
 use super::commit;
 use crate::dag;
 use crate::prolly;
-
-struct Write<'a> {
+pub struct Write<'a> {
     dag_write: &'a mut dag::Write<'a>,
     map: prolly::Map,
     basis_hash: &'a str,
@@ -20,6 +19,11 @@ impl<'a> Write<'a> {
             dag_write,
             map,
         })
+    }
+
+    // TODO: This should move to a read struct, similar to dag::Write.
+    pub fn get(&self, key: &[u8]) -> Option<&[u8]> {
+        self.map.get(key)
     }
 
     pub fn put(&mut self, key: Vec<u8>, val: Vec<u8>) {
@@ -57,6 +61,7 @@ impl<'a> Write<'a> {
 }
 
 // TODO: Find a way to mechanise below.
+#[derive(Debug)]
 pub enum NewError {
     Dag(dag::Error),
     MapLoad(prolly::LoadError),
@@ -72,6 +77,7 @@ impl From<prolly::LoadError> for NewError {
     }
 }
 
+#[derive(Debug)]
 pub enum CommitError {
     Dag(dag::Error),
     Flush(prolly::map::FlushError),

@@ -1,10 +1,13 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(DeJson).
 
+use crate::dag;
+use crate::db;
 use crate::kv::idbstore::IdbStore;
 use crate::kv::Store;
+use crate::prolly;
 use async_std::sync::{channel, Receiver, Sender};
 use log::warn;
-use nanoserde::{DeJson, SerJson};
+use nanoserde::{DeJson, DeJsonErr, SerJson};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use wasm_bindgen_futures::spawn_local;
@@ -83,7 +86,7 @@ struct PutRequest {
 }
 
 struct Dispatcher {
-    connections: HashMap<String, Box<dyn Store>>,
+    connections: HashMap<String, Box<dag::Store>>,
 }
 
 impl Dispatcher {
@@ -99,8 +102,9 @@ impl Dispatcher {
                 return Err(format!("Failed to open \"{}\": {}", req.db_name, e));
             }
             Ok(v) => {
-                if let Some(v) = v {
-                    self.connections.insert(req.db_name.clone(), Box::new(v));
+                if let Some(kv) = v {
+                    self.connections
+                        .insert(req.db_name.clone(), Box::new(dag::Store::new(Box::new(kv))));
                 }
             }
         }
@@ -151,15 +155,34 @@ impl Dispatcher {
         }
     }
 
-    async fn put(db: &mut dyn Store, data: &str) -> Response {
-        let req: PutRequest = match DeJson::deserialize_json(data) {
-            Ok(v) => v,
-            Err(_) => return Err("Failed to parse request".into()),
-        };
-        match db.put(&req.key, &req.value.into_bytes()).await {
-            Ok(_) => Ok("".into()),
-            Err(e) => Err(format!("{}", e)),
+    async fn put(ds: &mut dag::Store, data: &str) -> Response {
+        async fn put(ds: &mut dag::Store, data: &str) -> Result<String, PutError> {
+            let req: PutRequest = DeJson::deserialize_json(data)?;
+            let head_hash;
+            let mut dag_write = ds.write().await?;
+            head_hash = dag_write
+                .read()
+                .get_head("main")
+                .await?
+                .ok_or(PutError::NoHead)?;
+            let mut db_write = db::Write::new(head_hash.as_str(), &mut dag_write).await?;
+            /*
+            db_write.put(req.key.as_bytes().to_vec(), req.value.into_bytes());
+            db_write
+                .commit(
+                    "main",
+                    "cd",
+                    "cs",
+                    12,
+                    "foo",
+                    "bar".as_bytes(),
+                    head_hash.as_str().into(),
+                )
+                .await?;
+            */
+            Ok("{}".into())
         }
+        put(ds, data).await.map_err(|e| format!("{:?}", e))
     }
 
     async fn debug(&self, req: &Request) -> Response {
@@ -167,6 +190,35 @@ impl Dispatcher {
             "open_dbs" => Ok(format!("{:?}", self.connections.keys())),
             _ => Err("Debug command not defined".into()),
         }
+    }
+}
+
+#[derive(Debug)]
+enum PutError {
+    InvalidJSON(DeJsonErr),
+    DagError(dag::Error),
+    WriteError(db::NewError),
+    CommitError(db::CommitError),
+    NoHead,
+}
+impl From<DeJsonErr> for PutError {
+    fn from(e: DeJsonErr) -> PutError {
+        PutError::InvalidJSON(e)
+    }
+}
+impl From<dag::Error> for PutError {
+    fn from(e: dag::Error) -> PutError {
+        PutError::DagError(e)
+    }
+}
+impl From<db::NewError> for PutError {
+    fn from(e: db::NewError) -> PutError {
+        PutError::WriteError(e)
+    }
+}
+impl From<db::CommitError> for PutError {
+    fn from(e: db::CommitError) -> PutError {
+        PutError::CommitError(e)
     }
 }
 
